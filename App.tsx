@@ -1,270 +1,128 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
-*/
-import React, { useState, useEffect, useRef } from 'react';
-import { Hero } from './components/Hero';
-import { InputArea } from './components/InputArea';
-import { LivePreview } from './components/LivePreview';
-import { CreationHistory, Creation } from './components/CreationHistory';
-import { bringToLife } from './services/gemini';
-import { ArrowUpTrayIcon } from '@heroicons/react/24/solid';
+import React, { useState, useRef } from 'react';
+import { BrandDashboard } from './components/BrandDashboard';
+import { generateBrand } from './services/gemini';
+import { SparklesIcon, PhotoIcon, XMarkIcon } from '@heroicons/react/24/solid';
 
 const App: React.FC = () => {
-  const [activeCreation, setActiveCreation] = useState<Creation | null>(null);
+  const [brand, setBrand] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [history, setHistory] = useState<Creation[]>([]);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [prompt, setPrompt] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load history from local storage or fetch examples on mount
-  useEffect(() => {
-    const initHistory = async () => {
-      const saved = localStorage.getItem('gemini_app_history');
-      let loadedHistory: Creation[] = [];
-
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          loadedHistory = parsed.map((item: any) => ({
-              ...item,
-              timestamp: new Date(item.timestamp)
-          }));
-        } catch (e) {
-          console.error("Failed to load history", e);
-        }
-      }
-
-      if (loadedHistory.length > 0) {
-        setHistory(loadedHistory);
-      } else {
-        // If no history, just start empty
-        setHistory([]);
-      }
-    };
-
-    initHistory();
-  }, []);
-
-  // Save history when it changes
-  useEffect(() => {
-    if (history.length > 0) {
-        try {
-            localStorage.setItem('gemini_app_history', JSON.stringify(history));
-        } catch (e) {
-            console.warn("Local storage full or error saving history", e);
-        }
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const selected = e.target.files[0];
+      setFile(selected);
+      setPreviewUrl(URL.createObjectURL(selected));
     }
-  }, [history]);
+  };
 
-  // Helper to convert file to base64
-  const fileToBase64 = (file: File): Promise<string> => {
+  const removeFile = () => {
+    setFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
+  const fileToBase64 = (f: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('Failed to convert file to base64'));
-        }
-      };
-      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(f);
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = error => reject(error);
     });
   };
 
-  const handleGenerate = async (promptText: string, file?: File) => {
+  const handleGenerate = async () => {
+    if (!prompt.trim() && !file) return;
     setIsGenerating(true);
-    // Clear active creation to show loading state
-    setActiveCreation(null);
-
+    setBrand(null);
     try {
-      let imageBase64: string | undefined;
-      let mimeType: string | undefined;
-
+      let base64;
+      let mimeType;
+      
       if (file) {
-        imageBase64 = await fileToBase64(file);
-        mimeType = file.type.toLowerCase();
+          base64 = await fileToBase64(file);
+          mimeType = file.type;
       }
 
-      const html = await bringToLife(promptText, imageBase64, mimeType);
-      
-      if (html) {
-        const newCreation: Creation = {
-          id: crypto.randomUUID(),
-          name: file ? file.name : 'New Creation',
-          html: html,
-          // Store the full data URL for easy display
-          originalImage: imageBase64 && mimeType ? `data:${mimeType};base64,${imageBase64}` : undefined,
-          timestamp: new Date(),
-        };
-        setActiveCreation(newCreation);
-        setHistory(prev => [newCreation, ...prev]);
-      }
-
+      const data = await generateBrand(prompt, base64, mimeType);
+      setBrand(data);
     } catch (error) {
-      console.error("Failed to generate:", error);
-      alert("Something went wrong while bringing your file to life. Please try again.");
+      console.error("Failed to generate brand:", error);
+      alert("Something went wrong while generating the brand. Please try again.");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleGenerateImage = async (promptText: string) => {
-    setIsGenerating(true);
-    setActiveCreation(null);
-
-    try {
-      const { generateImage } = await import('./services/gemini');
-      const imageUrl = await generateImage(promptText);
-      
-      const html = `<!DOCTYPE html><html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;height:100vh;"><img src="${imageUrl}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);" /></body></html>`;
-      
-      const newCreation: Creation = {
-        id: crypto.randomUUID(),
-        name: promptText.slice(0, 30) + '...',
-        html: html,
-        originalImage: imageUrl,
-        timestamp: new Date(),
-      };
-      
-      setActiveCreation(newCreation);
-      setHistory(prev => [newCreation, ...prev]);
-    } catch (error) {
-      console.error("Failed to generate image:", error);
-      alert("Something went wrong while generating the image. Please try again.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleReset = () => {
-    setActiveCreation(null);
-    setIsGenerating(false);
-  };
-
-  const handleSelectCreation = (creation: Creation) => {
-    setActiveCreation(creation);
-  };
-
-  const handleImportClick = () => {
-    importInputRef.current?.click();
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        try {
-            const json = event.target?.result as string;
-            const parsed = JSON.parse(json);
-            
-            // Basic validation
-            if (parsed.html && parsed.name) {
-                const importedCreation: Creation = {
-                    ...parsed,
-                    timestamp: new Date(parsed.timestamp || Date.now()),
-                    id: parsed.id || crypto.randomUUID()
-                };
-                
-                // Add to history if not already there (by ID check)
-                setHistory(prev => {
-                    const exists = prev.some(c => c.id === importedCreation.id);
-                    return exists ? prev : [importedCreation, ...prev];
-                });
-
-                // Set as active immediately
-                setActiveCreation(importedCreation);
-            } else {
-                alert("Invalid creation file format.");
-            }
-        } catch (err) {
-            console.error("Import error", err);
-            alert("Failed to import creation.");
-        }
-        // Reset input
-        if (importInputRef.current) importInputRef.current.value = '';
-    };
-    reader.readAsText(file);
-  };
-
-  const isFocused = !!activeCreation || isGenerating;
+  if (brand) {
+    return <BrandDashboard brand={brand} onReset={() => setBrand(null)} />;
+  }
 
   return (
-    <div className="h-[100dvh] bg-zinc-950 bg-dot-grid text-zinc-50 selection:bg-blue-500/30 overflow-y-auto overflow-x-hidden relative flex flex-col">
-      
-      {/* Centered Content Container */}
-      <div 
-        className={`
-          min-h-full flex flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 relative z-10 
-          transition-all duration-700 cubic-bezier(0.4, 0, 0.2, 1)
-          ${isFocused 
-            ? 'opacity-0 scale-95 blur-sm pointer-events-none h-[100dvh] overflow-hidden' 
-            : 'opacity-100 scale-100 blur-0'
-          }
-        `}
-      >
-        {/* Main Vertical Centering Wrapper */}
-        <div className="flex-1 flex flex-col justify-center items-center w-full py-12 md:py-20">
-          
-          {/* 1. Hero Section */}
-          <div className="w-full mb-8 md:mb-16">
-              <Hero />
-          </div>
-
-          {/* 2. Input Section */}
-          <div className="w-full flex justify-center mb-8">
-              <InputArea onGenerate={handleGenerate} onGenerateImage={handleGenerateImage} isGenerating={isGenerating} disabled={isFocused} />
-          </div>
-
-        </div>
-        
-        {/* 3. History Section & Footer - Stays at bottom */}
-        <div className="flex-shrink-0 pb-6 w-full mt-auto flex flex-col items-center gap-6">
-            <div className="w-full px-2 md:px-0">
-                <CreationHistory history={history} onSelect={handleSelectCreation} />
+    <div className="min-h-[100dvh] bg-zinc-950 text-zinc-50 flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{
+        backgroundImage: 'radial-gradient(circle at 50% -20%, rgba(212,160,23,0.15) 0%, transparent 40%)'
+    }}>
+        <div className="w-full max-w-2xl z-10 flex flex-col items-center text-center">
+            <div className="w-16 h-16 border border-yellow-500/30 bg-yellow-500/10 rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(212,160,23,0.2)]">
+                <SparklesIcon className="w-8 h-8 text-yellow-500" />
             </div>
-            
-            <a 
-              href="https://x.com/ammaar" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-zinc-600 hover:text-zinc-400 text-xs font-mono transition-colors pb-2"
-            >
-              Created by @ammaar
-            </a>
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4 text-white">
+                Brand <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">Generator</span>
+            </h1>
+            <p className="text-zinc-400 text-lg mb-10 max-w-lg">
+                Describe your company, idea, or product. We'll generate a complete branding package including logos, colors, taglines, and 12 customized HTML documents.
+            </p>
+
+            <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-2 flex flex-col focus-within:border-yellow-500/50 focus-within:ring-1 focus-within:ring-yellow-500/50 transition-all shadow-xl">
+                {previewUrl && (
+                    <div className="relative w-32 h-32 mx-4 mt-4 rounded-xl overflow-hidden border border-zinc-700 bg-black">
+                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                        <button onClick={removeFile} className="absolute top-1 right-1 bg-black/50 hover:bg-black p-1 rounded-full text-white backdrop-blur transition-all">
+                            <XMarkIcon className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+                <textarea 
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="e.g. Next-gen AI automation agency based in Belgium specializing in workflow optimization..."
+                    className="w-full bg-transparent p-4 text-zinc-100 placeholder:text-zinc-600 resize-none h-32 focus:outline-none"
+                    disabled={isGenerating}
+                />
+                <div className="flex justify-between items-center p-2 border-t border-zinc-800">
+                    <div>
+                        <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
+                        <button 
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isGenerating}
+                            className="p-2 text-zinc-400 hover:text-yellow-500 hover:bg-zinc-800 rounded-lg transition-all"
+                            title="Upload image or file"
+                        >
+                            <PhotoIcon className="w-6 h-6" />
+                        </button>
+                    </div>
+                    <button 
+                        onClick={handleGenerate}
+                        disabled={(!prompt.trim() && !file) || isGenerating}
+                        className="py-2.5 px-6 bg-gradient-to-r from-yellow-500 to-yellow-600 text-zinc-950 font-bold rounded-lg hover:brightness-110 disabled:opacity-50 disabled:hover:brightness-100 transition-all flex items-center gap-2"
+                    >
+                        {isGenerating ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></div>
+                                Crafting Brand...
+                            </>
+                        ) : (
+                            <>Generate Assets</>
+                        )}
+                    </button>
+                </div>
+            </div>
         </div>
-      </div>
-
-      {/* Live Preview - Always mounted for smooth transition */}
-      <LivePreview
-        creation={activeCreation}
-        isLoading={isGenerating}
-        isFocused={isFocused}
-        onReset={handleReset}
-      />
-
-      {/* Subtle Import Button (Bottom Right) */}
-      <div className="fixed bottom-4 right-4 z-50">
-        <button 
-            onClick={handleImportClick}
-            className="flex items-center space-x-2 p-2 text-zinc-500 hover:text-zinc-300 transition-colors opacity-60 hover:opacity-100"
-            title="Import Artifact"
-        >
-            <span className="text-xs font-medium uppercase tracking-wider hidden sm:inline">Upload previous artifact</span>
-            <ArrowUpTrayIcon className="w-5 h-5" />
-        </button>
-        <input 
-            type="file" 
-            ref={importInputRef} 
-            onChange={handleImportFile} 
-            accept=".json" 
-            className="hidden" 
-        />
-      </div>
     </div>
   );
 };

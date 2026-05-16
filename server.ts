@@ -57,7 +57,7 @@ app.post('/api/generate-html', async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-2.5-pro',
       contents: { parts },
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -110,6 +110,68 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (error) {
     console.error("Gemini Image Gen Error:", error);
     res.status(500).json({ error: 'Failed to generate image' });
+  }
+});
+
+app.post('/api/generate-brand', async (req, res) => {
+  try {
+    const { prompt, fileBase64, mimeType } = req.body;
+    
+    const SYSTEM_INSTRUCTION = `You are an expert Brand Identity Designer.
+The user will give you a company description, name, or abstract idea, or an image of an object to base the brand on.
+Generate a complete corporate identity in JSON format.
+The JSON must strictly follow this structure:
+{
+  "company_name": "Short Name",
+  "company_legal_name": "Full legal name e.g. LLC",
+  "primary_color": "#HEX based on brand vibe (e.g., #D4A017)",
+  "primary_color_light": "#HEX slightly lighter (e.g., #F0BE45)",
+  "secondary_color": "#HEX (e.g., #1A1A1A)",
+  "background_color": "#000000",
+  "text_color": "#FFFFFF",
+  "company_address": "Realistic mock address",
+  "company_email": "hello@domain.com",
+  "company_website": "www.domain.com",
+  "founder_name": "Mock Founder Name",
+  "slogan_1": "Catchy slogan 1",
+  "slogan_2": "Catchy slogan 2",
+  "slogan_3": "Catchy slogan 3",
+  "logo_svg": "A minimalist inline SVG tag for their logo. MUST NOT include markdown. Starts with <svg>. Use currentColor or the primary color. Make it beautifully designed. Should scale well to 100x100.",
+  "logo_icon": "A single representative emoji or Unicode character",
+  "social_banners": ["Banner 1 text", "Banner 2 text", "Banner 3 text"],
+  "social_posts": [
+    {"text": "Post 1 short text", "sub": "Call to action"},
+    {"text": "Post 2", "sub": "site link"},
+    {"text": "Post 3", "sub": "promo"}
+  ]
+}
+Return ONLY valid JSON.`;
+
+    const parts: any[] = [{ text: prompt || "Generate a brand based on this input." }];
+    if (fileBase64 && mimeType) {
+      parts.push({
+        inlineData: {
+          data: fileBase64,
+          mimeType: mimeType,
+        },
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-pro',
+      contents: [{ role: 'user', parts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        temperature: 0.7,
+        responseMimeType: "application/json",
+      },
+    });
+
+    let jsonText = response.text || "{}";
+    res.json(JSON.parse(jsonText));
+  } catch (error) {
+    console.error("Gemini Brand Gen Error:", error);
+    res.status(500).json({ error: 'Failed to generate brand' });
   }
 });
 
